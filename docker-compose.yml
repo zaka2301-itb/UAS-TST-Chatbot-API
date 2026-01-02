@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: ai_api
+    restart: always
+    ports:
+      - '2301:2301'
+    networks:
+      - chat-network
+    env_file:
+      - .env
+    command: >
+      sh -c "npx prisma generate && npx prisma migrate dev --create-only --name init && npx prisma migrate deploy && node dist/index.js"
+
+networks:
+  chat-network:
+    external: true
