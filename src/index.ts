@@ -18,7 +18,7 @@ const swaggerOptions = {
     info: {
       title: 'Chatbot API',
       version: '1.0.0',
-      description: 'A simple chatbot API using Google GenAI SDK (v1) and MySQL',
+      description: 'A Chatbot API integrated with Google Gemini AI and persistent storage.',
     },
     servers: [
       {
@@ -32,6 +32,44 @@ const swaggerOptions = {
           type: 'apiKey',
           in: 'header',
           name: 'x-api-key',
+          description: 'Custom API Key for authenticating requests.',
+        },
+      },
+      schemas: {
+        Message: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer', description: 'Unique identifier for the message' },
+            chatSessionId: { type: 'integer', description: 'ID of the chat session this message belongs to' },
+            content: { type: 'string', description: 'The text content of the message' },
+            sender: { type: 'string', enum: ['user', 'bot'], description: 'Originator of the message' },
+            createdAt: { type: 'string', format: 'date-time', description: 'Timestamp when the message was created' },
+          },
+        },
+        ChatSession: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer', description: 'Unique identifier for the session' },
+            title: { type: 'string', nullable: true, description: 'AI-generated title for the session' },
+            createdAt: { type: 'string', format: 'date-time', description: 'Timestamp when the session was created' },
+            apiKeyId: { type: 'integer', description: 'ID of the API key used for this session' },
+          },
+        },
+        ApiKey: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer' },
+            key: { type: 'string' },
+            name: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
+            active: { type: 'boolean' },
+          },
+        },
+        Error: {
+          type: 'object',
+          properties: {
+            error: { type: 'string', description: 'Specific error message' },
+          },
         },
       },
     },
@@ -83,6 +121,7 @@ const authenticateApiKey = async (req: Request, res: Response, next: any) => {
  * /api/keys/generate:
  *   post:
  *     summary: Generate a new API key
+ *     description: Creates a unique API key associated with a name. This key is required for all Chat endpoints.
  *     tags: [Admin]
  *     requestBody:
  *       required: true
@@ -95,9 +134,27 @@ const authenticateApiKey = async (req: Request, res: Response, next: any) => {
  *             properties:
  *               name:
  *                 type: string
+ *                 description: Friendly name for the API key owner
+ *                 example: My App
  *     responses:
  *       200:
- *         description: The generated API key
+ *         description: Successfully generated API key
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiKey'
+ *       400:
+ *         description: Missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 app.post('/api/keys/generate', async (req: Request, res: Response): Promise<any> => {
   const { name } = req.body;
@@ -118,7 +175,8 @@ app.post('/api/keys/generate', async (req: Request, res: Response): Promise<any>
  * @swagger
  * /api/chat/start:
  *   post:
- *     summary: Create a new chat session with an initial message
+ *     summary: Initialize a Chat Session
+ *     description: Creates a new chat session and sends the first user message. Returns the session details and the bot's initial response.
  *     tags: [Chat]
  *     security:
  *       - ApiKeyAuth: []
@@ -133,31 +191,38 @@ app.post('/api/keys/generate', async (req: Request, res: Response): Promise<any>
  *             properties:
  *               message:
  *                 type: string
+ *                 description: The first message to start the conversation
+ *                 example: Hello, who are you?
  *     responses:
  *       200:
- *         description: The created session and the bot's first response
+ *         description: Session created and initial response received
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
  *                 session:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                     createdAt:
- *                       type: string
- *                       format: date-time
+ *                   $ref: '#/components/schemas/ChatSession'
  *                 message:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                     content:
- *                       type: string
- *                     sender:
- *                       type: string
+ *                   $ref: '#/components/schemas/Message'
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized - Invalid or missing API key
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal processing error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 app.post('/api/chat/start', authenticateApiKey, async (req: Request, res: Response): Promise<any> => {
   const { message } = req.body || {};
@@ -264,7 +329,8 @@ const processChat = async (sessionId: number, message: string) => {
  * @swagger
  * /api/chat/message:
  *   post:
- *     summary: Send a message to the bot
+ *     summary: Send message to existing session
+ *     description: Continues an ongoing conversation by sending a new message to a specific session ID.
  *     tags: [Chat]
  *     security:
  *       - ApiKeyAuth: []
@@ -280,23 +346,43 @@ const processChat = async (sessionId: number, message: string) => {
  *             properties:
  *               sessionId:
  *                 type: integer
+ *                 description: ID of the active chat session
+ *                 example: 1
  *               message:
  *                 type: string
+ *                 description: User message content
+ *                 example: Tell me more about that.
  *     responses:
  *       200:
- *         description: The bot's response
+ *         description: Bot's response retrieved successfully
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 id:
- *                   type: integer
- *                 content:
- *                   type: string
- *                 sender:
- *                   type: string
- *                   example: bot
+ *               $ref: '#/components/schemas/Message'
+ *       400:
+ *         description: Missing sessionId or message
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Session not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Processing error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 app.post('/api/chat/message', authenticateApiKey, async (req: Request, res: Response): Promise<any> => {
   const { sessionId, message } = req.body || {};
@@ -328,27 +414,32 @@ app.post('/api/chat/message', authenticateApiKey, async (req: Request, res: Resp
  * @swagger
  * /api/chat/sessions:
  *   get:
- *     summary: Retrieve all chat sessions
+ *     summary: List all user sessions
+ *     description: Returns a list of all chat sessions linked to the provided API Key.
  *     tags: [Chat]
  *     security:
  *       - ApiKeyAuth: []
  *     responses:
  *       200:
- *         description: A list of chat sessions
+ *         description: Successful retrieval
  *         content:
  *           application/json:
  *             schema:
  *               type: array
  *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                   title:
- *                     type: string
- *                   createdAt:
- *                     type: string
- *                     format: date-time
+ *                 $ref: '#/components/schemas/ChatSession'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 app.get('/api/chat/sessions', authenticateApiKey, async (req: Request, res: Response) => {
   try {
@@ -367,7 +458,8 @@ app.get('/api/chat/sessions', authenticateApiKey, async (req: Request, res: Resp
  * @swagger
  * /api/chat/{sessionId}:
  *   get:
- *     summary: Get message history for a specific session
+ *     summary: Retrieve message history
+ *     description: Fetches full message history for a specific session ID.
  *     tags: [Chat]
  *     security:
  *       - ApiKeyAuth: []
@@ -377,23 +469,34 @@ app.get('/api/chat/sessions', authenticateApiKey, async (req: Request, res: Resp
  *         schema:
  *           type: integer
  *         required: true
- *         description: The numeric ID of the chat session
+ *         description: The unique ID of the conversation session
  *     responses:
  *       200:
- *         description: The chat history
+ *         description: History retrieved successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: array
  *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                   content:
- *                     type: string
- *                   sender:
- *                     type: string
+ *                 $ref: '#/components/schemas/Message'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Session not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  */
 app.get('/api/chat/:sessionId', authenticateApiKey, async (req: Request, res: Response) => {
   try {
