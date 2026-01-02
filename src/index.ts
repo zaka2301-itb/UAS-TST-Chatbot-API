@@ -176,8 +176,12 @@ app.post('/api/chat/start', authenticateApiKey, async (req: Request, res: Respon
 
     const botMessage = await processChat(session.id, message);
 
+    const updatedSession = await prisma.chatSession.findUnique({
+      where: { id: session.id }
+    });
+
     res.json({
-      session,
+      session: updatedSession,
       message: botMessage
     });
   } catch (error) {
@@ -186,7 +190,36 @@ app.post('/api/chat/start', authenticateApiKey, async (req: Request, res: Respon
   }
 });
 
+const generateSessionTitle = async (message: string): Promise<string> => {
+  try {
+    const prompt = `Generate a very short, concise title (max 5 words) for a chat session starting with this message: "${message}". Return ONLY the title text, no quotes or explanation.`;
+
+    const result = await genAI.models.generateContent({
+      model: aiModel,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    });
+
+    return result.text?.trim() || "New Chat";
+  } catch (error) {
+    console.error("Title Generation Error:", error);
+    return "New Chat";
+  }
+};
+
 const processChat = async (sessionId: number, message: string) => {
+  const session = await prisma.chatSession.findUnique({
+    where: { id: sessionId },
+    select: { title: true }
+  });
+
+  if (session && !session.title) {
+    const title = await generateSessionTitle(message);
+    await prisma.chatSession.update({
+      where: { id: sessionId },
+      data: { title }
+    });
+  }
+
   await prisma.message.create({
     data: {
       content: message,
@@ -311,6 +344,8 @@ app.post('/api/chat/message', authenticateApiKey, async (req: Request, res: Resp
  *                 properties:
  *                   id:
  *                     type: integer
+ *                   title:
+ *                     type: string
  *                   createdAt:
  *                     type: string
  *                     format: date-time
@@ -321,12 +356,6 @@ app.get('/api/chat/sessions', authenticateApiKey, async (req: Request, res: Resp
     const sessions = await prisma.chatSession.findMany({
       where: { apiKeyId: apiKey.id },
       orderBy: { createdAt: 'desc' },
-      include: {
-        messages: {
-          take: 1,
-          orderBy: { createdAt: 'desc' }
-        }
-      }
     });
     res.json(sessions);
   } catch (error) {
