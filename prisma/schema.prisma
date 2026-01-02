@@ -1,24 +1,35 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
   engineType = "library"
 }
 
 datasource db {
   provider = "sqlite"
-  url = env("DATABASE_URL")
+  url      = env("DATABASE_URL")
+}
+
+model ApiKey {
+  id           Int           @id @default(autoincrement())
+  key          String        @unique
+  name         String
+  createdAt    DateTime      @default(now())
+  active       Boolean       @default(true)
+  chatSessions ChatSession[]
 }
 
 model ChatSession {
   id        Int       @id @default(autoincrement())
   createdAt DateTime  @default(now())
+  apiKeyId  Int
+  apiKey    ApiKey    @relation(fields: [apiKeyId], references: [id])
   messages  Message[]
 }
 
 model Message {
   id            Int         @id @default(autoincrement())
+  chatSessionId Int
   content       String      // @db.Text
   sender        String      // "user" or "bot"
   createdAt     DateTime    @default(now())
-  chatSessionId Int
   chatSession   ChatSession @relation(fields: [chatSessionId], references: [id])
 }
