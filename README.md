@@ -51,7 +51,7 @@ API gateway integrated with **Google Gemini AI** and **Prisma** for persistent s
    ```bash
    npm run dev
    ```
-   The server will start on `http://localhost:2301`.
+   The server will start on `http://localhost:3000`.
 
 ### Running with Docker
 
@@ -60,7 +60,7 @@ You can also run the entire stack using Docker Compose:
 ```bash
 docker-compose up -d
 ```
-The service will be accessible at `http://localhost:2301`.
+The service will be accessible at `http://localhost:3000`.
 
 ## Authentication
 
@@ -94,7 +94,7 @@ x-api-key: your-unique-api-key
 ## API Documentation
 
 Interactive documentation is available via Swagger at:  
-👉 **`http://localhost:2301/api-docs`**
+**`http://localhost:3000/api-docs`**
 
 ### Core Endpoints
 
